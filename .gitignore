@@ -1,0 +1,21 @@
+# Binaries
+bin/
+*.exe
+*.test
+
+# Env
+.env
+
+# Logs
+*.log
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Go
+vendor/
+coverage.out
+

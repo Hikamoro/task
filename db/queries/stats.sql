@@ -1,0 +1,46 @@
+-- name: TeamStats :one
+WITH team_tasks AS (
+    SELECT id, title, status, assignee_id, created_at, closed_at
+    FROM tasks
+    WHERE team_id = ?
+),
+status_counts AS (
+    SELECT status, COUNT(*) AS cnt
+    FROM team_tasks
+    GROUP BY status
+),
+avg_close AS (
+    SELECT ROUND(AVG(TIMESTAMPDIFF(SECOND, created_at, closed_at))) AS avg_seconds
+    FROM team_tasks
+    WHERE status = 'done' AND closed_at IS NOT NULL
+),
+comment_counts AS (
+    SELECT COUNT(*) AS cnt
+    FROM task_comments c
+             JOIN team_tasks tt ON tt.id = c.task_id
+),
+top_assignee_stats AS (
+    SELECT u.name AS assignee_name, COUNT(*) AS cnt
+    FROM team_tasks tt
+             JOIN users u ON u.id = tt.assignee_id
+    WHERE tt.status = 'done'
+      AND tt.closed_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 30 DAY)
+    GROUP BY u.id, u.name
+    ORDER BY cnt DESC, u.name ASC
+    LIMIT 3
+)
+SELECT
+    CAST(COALESCE(MAX(CASE WHEN status = 'todo' THEN cnt ELSE 0 END), 0) AS SIGNED)        AS todo_count,
+    CAST(COALESCE(MAX(CASE WHEN status = 'in_progress' THEN cnt ELSE 0 END), 0) AS SIGNED) AS in_progress_count,
+    CAST(COALESCE(MAX(CASE WHEN status = 'done' THEN cnt ELSE 0 END), 0) AS SIGNED)        AS done_count,
+    (SELECT cnt FROM comment_counts)                                                       AS comments_count,
+    CAST(COALESCE((SELECT avg_seconds FROM avg_close), 0) AS DOUBLE)                       AS avg_close_seconds,
+    CAST(COALESCE((SELECT SUM(cnt) FROM top_assignee_stats), 0) AS SIGNED)                 AS top_assignees_done_30d,
+    CAST(
+        COALESCE(
+            (SELECT JSON_ARRAYAGG(JSON_OBJECT('name', assignee_name, 'closed_count', cnt))
+             FROM top_assignee_stats),
+            JSON_ARRAY()
+        ) AS JSON
+    )                                                                                      AS top_assignees
+FROM status_counts;
